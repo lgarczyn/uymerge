@@ -1,0 +1,17 @@
+[package]
+name = "uymerge"
+version = "0.1.0"
+edition = "2021"
+description = "Structural 3-way merge for Unity YAML assets"
+license = "MIT"
+
+[dev-dependencies]
+proptest = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+# Unwind rather than abort so the driver can catch a latent panic and leave a
+# whole-file conflict. An aborted driver leaves OUTPUT as marker-less ours.
+panic = "unwind"

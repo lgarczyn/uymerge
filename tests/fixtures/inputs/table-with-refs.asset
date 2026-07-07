@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_Name: Table_en
+  m_TableData:
+  - m_Id: 100
+    m_Localized: plain string
+    m_Metadata:
+      m_Items: []
+  - m_Id: 200
+    m_Localized: '{smart} string'
+    m_Metadata:
+      m_Items:
+      - rid: 842043826615615503
+  - m_Id: 300
+    m_Localized: third entry
+    m_Metadata:
+      m_Items: []
+  references:
+    version: 2
+    RefIds:
+    - rid: 842043826615615503
+      type: {class: SmartFormatTag, ns: UnityEngine.Localization.Metadata, asm: Unity.Localization}
+      data:
+        m_Entries: 
+        m_SharedEntries:
+        - id: 200
+        - id: 300

@@ -1,0 +1,26 @@
+[package]
+name = "uymerge-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+uymerge = { path = ".." }
+
+[[bin]]
+name = "reserialize"
+path = "fuzz_targets/reserialize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "merge"
+path = "fuzz_targets/merge.rs"
+test = false
+doc = false
+bench = false
