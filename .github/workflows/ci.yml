@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      # rustup picks the pinned toolchain from rust-toolchain.toml
+      - run: rustup show
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build --release
+      - name: git end-to-end
+        shell: bash
+        run: |
+          BIN=target/release/uymerge
+          [ -f "$BIN.exe" ] && BIN="$BIN.exe"
+          sh oracle/git-e2e.sh "$BIN"

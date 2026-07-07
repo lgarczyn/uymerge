@@ -1,0 +1,116 @@
+# uymerge
+
+[![CI](https://github.com/lgarczyn/uymerge/actions/workflows/ci.yml/badge.svg)](https://github.com/lgarczyn/uymerge/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/lgarczyn/uymerge?sort=semver)](https://github.com/lgarczyn/uymerge/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-informational)
+
+A structural 3-way merge tool for Unity YAML assets. One dependency-free static
+binary per platform, registered directly as a git merge driver.
+
+Unity's bundled `UnityYAMLMerge` is line-based: dense edits near long
+multi-line scalars can drop, duplicate, or misalign records and still exit 0,
+and its output diverges from what the editor writes, so merged scenes and
+prefabs churn and can silently lose data. `uymerge` merges the same files
+**structurally**, by document anchor, string-table entry, and SerializeReference
+record, then reserializes byte-for-byte the way the editor would and self-checks
+the result before ever reporting success.
+
+## Install
+
+Download the binary for your platform from the
+[latest release](https://github.com/lgarczyn/uymerge/releases/latest):
+
+| Platform | Asset |
+|----------|-------|
+| Linux x86_64 | `uymerge-linux-x86_64` |
+| macOS arm64 | `uymerge-macos-arm64` |
+| macOS x86_64 | `uymerge-macos-x86_64` |
+| Windows x86_64 | `uymerge-windows-x86_64.exe` |
+
+Put it somewhere on disk (e.g. `~/bin/uymerge`) and mark it executable. Or
+build from source (see below).
+
+## Setup
+
+Register `uymerge` as a git merge driver. Add `--global` to apply it to every
+repository:
+
+```
+git config merge.unityyamlmerge.name   "Unity YAML structural merge"
+git config merge.unityyamlmerge.driver "'/path/to/uymerge' %O %B %A %A"
+```
+
+Route Unity files to the driver with `.gitattributes` (commit this in your
+repository so every contributor uses it):
+
+```
+*.unity   merge=unityyamlmerge
+*.prefab  merge=unityyamlmerge
+*.asset   merge=unityyamlmerge
+```
+
+That is all. Merges of scenes, prefabs, and assets now come out editor-clean.
+
+## Manual use
+
+```
+uymerge BASE REMOTE LOCAL OUTPUT
+```
+
+Exit `0` is a verified, conflict-free merge; a non-zero exit leaves a
+marked-up `OUTPUT` with conflict markers, handled like any merge driver.
+
+## How it works
+
+`uymerge` works on raw text lines and never decodes values into a YAML data
+model. Byte equality with the editor's own serialization is the oracle, and
+this is deliberately **not** a general YAML library.
+
+1. **Unwrap.** All three inputs are reserialized with infinite width so every
+   value occupies one line, defeating the fold-trailing-whitespace loss that
+   breaks line-based tools.
+2. **Merge structurally.** Documents are keyed by `&anchor`, string-table
+   entries by `m_Id`, and SerializeReference records by `rid`. Each is merged
+   with true 3-way semantics; `m_SharedEntries` id lists merge as sets honoring
+   both sides' additions and removals. Non-keyed regions fall back to a
+   hand-rolled diff3 line merge.
+3. **Rewrap.** The result is reserialized exactly as the editor writes it
+   (plain width 79, quoted width 80, inline flow mappings) and the original
+   line endings are restored wholesale from ours.
+4. **Self-check.** The rewrapped output is verified against true 3-way
+   semantics before success is reported: no dropped or duplicated ids, no
+   dangling rid references, and "both sides changed differently" always
+   conflicts rather than silently picking one.
+
+If the self-check fails, or a decode fails, or the driver panics, it leaves a
+whole-file conflict rather than risk a marker-less keep-ours, because git keeps
+the driver's output on failure and a clean-looking lossy file gets committed
+as-is. A zero exit is always a verified merge.
+
+## Build from source
+
+Requires a Rust toolchain; the pinned version is in `rust-toolchain.toml`.
+
+```
+cargo build --release
+# binary at target/release/uymerge
+```
+
+## Tests
+
+```
+make check          # fmt, clippy, full test suite
+cargo test          # unit + golden + diff3 parity tests
+sh oracle/git-e2e.sh target/release/uymerge   # end-to-end through real git
+```
+
+Golden and diff3-parity fixtures are committed under `tests/fixtures/`; the
+diff3 expectations come from git itself. Corpus-scale oracles (`oracle/noop.sh`,
+`oracle/bench.sh`) run against a local Unity checkout.
+
+The design and behavior are specified in `docs/SPEC.md`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

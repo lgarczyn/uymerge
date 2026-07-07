@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset: uymerge-linux-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: uymerge-windows-x86_64.exe
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset: uymerge-macos-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset: uymerge-macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show && rustup target add ${{ matrix.target }}
+      - if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+      - run: cargo build --release --target ${{ matrix.target }}
+      - shell: bash
+        run: |
+          bin=target/${{ matrix.target }}/release/uymerge
+          [ -f "$bin.exe" ] && bin="$bin.exe"
+          cp "$bin" "${{ matrix.asset }}"
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release upload "$GITHUB_REF_NAME" "${{ matrix.asset }}" --clobber || gh release create "$GITHUB_REF_NAME" "${{ matrix.asset }}"

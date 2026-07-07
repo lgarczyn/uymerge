@@ -1,0 +1,3 @@
+# Byte-exact fixtures and goldens: any EOL conversion breaks byte-parity
+# tests, and Windows runners default to autocrlf.
+* -text
