@@ -208,6 +208,100 @@ fn noop_merge_preserves_terminators_byte_for_byte() {
     }
 }
 
+// Drive through the native argv: `merge [flags] base left right dest`.
+// left is theirs, right is ours, so the mapping matches the plain driver.
+fn drive_merge(
+    dir: &Path,
+    flags: &[&str],
+    base: &[u8],
+    theirs: &[u8],
+    ours: &[u8],
+) -> (i32, Vec<u8>) {
+    let bp = dir.join("base");
+    let rp = dir.join("remote");
+    let lp = dir.join("local");
+    let op = dir.join("out");
+    fs::write(&bp, base).unwrap();
+    fs::write(&rp, theirs).unwrap();
+    fs::write(&lp, ours).unwrap();
+    let mut argv = vec!["merge".to_string()];
+    argv.extend(flags.iter().map(|f| f.to_string()));
+    for p in [&bp, &rp, &lp, &op] {
+        argv.push(p.to_str().unwrap().to_string());
+    }
+    let status = Command::new(BIN).args(&argv).status().unwrap();
+    let out = fs::read(&op).unwrap_or_default();
+    (status.code().unwrap_or(-1), out)
+}
+
+// The exact flags the Unity manual's git config passes before the four paths.
+#[test]
+fn merge_subcommand_matches_plain_driver() {
+    let dir = workdir("dropin-clean");
+    let base = "%YAML 1.1\n--- !u!1 &100\nGameObject:\n  m_Name: A\n";
+    let theirs = "%YAML 1.1\n--- !u!1 &100\nGameObject:\n  m_Name: B\n";
+    let flags = ["-h", "-p", "--force"];
+    let (rc, out) = drive_merge(
+        &dir,
+        &flags,
+        base.as_bytes(),
+        theirs.as_bytes(),
+        base.as_bytes(),
+    );
+    let out = String::from_utf8(out).unwrap();
+    assert_eq!(rc, 0);
+    assert!(out.contains("m_Name: B"));
+    assert!(!out.contains("<<<<<<<"));
+}
+
+// --rules and --fallback each consume their file argument.
+// A conflict still surfaces as markers because uymerge runs no fallback tool.
+#[test]
+fn merge_subcommand_swallows_value_flags() {
+    let dir = workdir("dropin-flags");
+    let base = "%YAML 1.1\n--- !u!114 &1\nMonoBehaviour:\n  m_Value: 1\n";
+    let ours = "%YAML 1.1\n--- !u!114 &1\nMonoBehaviour:\n  m_Value: 2\n";
+    let theirs = "%YAML 1.1\n--- !u!114 &1\nMonoBehaviour:\n  m_Value: 3\n";
+    let flags = ["--rules", "rules.txt", "--fallback", "none"];
+    let (rc, out) = drive_merge(
+        &dir,
+        &flags,
+        base.as_bytes(),
+        theirs.as_bytes(),
+        ours.as_bytes(),
+    );
+    let out = String::from_utf8(out).unwrap();
+    assert_eq!(rc, 1);
+    assert!(out.contains("<<<<<<< ours"));
+    assert!(out.contains(">>>>>>> theirs"));
+}
+
+// With no dest path the merge is written back over right (ours).
+#[test]
+fn merge_subcommand_without_dest_writes_over_ours() {
+    let dir = workdir("dropin-nodest");
+    let base = "%YAML 1.1\n--- !u!1 &100\nGameObject:\n  m_Name: A\n";
+    let theirs = "%YAML 1.1\n--- !u!1 &100\nGameObject:\n  m_Name: B\n";
+    let bp = dir.join("base");
+    let rp = dir.join("remote");
+    let lp = dir.join("local");
+    fs::write(&bp, base).unwrap();
+    fs::write(&rp, theirs).unwrap();
+    fs::write(&lp, base).unwrap();
+    let status = Command::new(BIN)
+        .args([
+            "merge",
+            bp.to_str().unwrap(),
+            rp.to_str().unwrap(),
+            lp.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert_eq!(status.code().unwrap_or(-1), 0);
+    let out = fs::read_to_string(&lp).unwrap();
+    assert!(out.contains("m_Name: B"));
+}
+
 #[test]
 fn usage_error_exits_two() {
     let dir = workdir("usage");
