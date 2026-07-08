@@ -6,6 +6,7 @@
 //! merge_file, rewrap, self-check with validate_merge, restore CRLF, write.
 //! The `--batch-reserialize` and `--batch-unwrap` modes mirror
 //! oracle/py_batch.py so oracle/differential.sh can byte-compare us to it.
+//! The `merge` subcommand accepts the native UnityYAMLMerge argv, SPEC 5.6.
 //!
 //! Exit 0 only on a conflict-free merge that also passes the self-check,
 //! SPEC 5.1-5.3.
@@ -37,8 +38,50 @@ pub fn run(args: &[String]) -> ExitCode {
     match args.get(1).map(String::as_str) {
         Some("--batch-reserialize") => batch(false, args),
         Some("--batch-unwrap") => batch(true, args),
+        Some("merge") => merge_subcommand(args),
         _ => driver(args),
     }
+}
+
+// Drop-in for the native UnityYAMLMerge CLI, SPEC 5.6.
+// The Unity manual wires every VCS as `merge [flags] base left right [dest]`,
+// so accepting that argv lets a user swap the binary path into an existing
+// config unchanged.
+// left is theirs and right is ours, matching our own BASE REMOTE LOCAL order.
+// The native flags are accepted and then ignored: uymerge is always headless,
+// extension-agnostic, and editor-faithful, and it never runs a fallback tool,
+// so --fallback and --rules are swallowed with their file argument.
+fn merge_subcommand(args: &[String]) -> ExitCode {
+    // These flags take a following file token; every other flag is a boolean.
+    const VALUE_FLAGS: [&str; 5] = ["-i", "-o", "--rules", "--fallback", "--typeInfo"];
+    let mut positionals: Vec<&str> = Vec::new();
+    let mut i = 2;
+    while i < args.len() {
+        let a = args[i].as_str();
+        if VALUE_FLAGS.contains(&a) {
+            i += 2;
+        } else if a.starts_with('-') && a.len() > 1 {
+            i += 1;
+        } else {
+            positionals.push(a);
+            i += 1;
+        }
+    }
+    if positionals.len() < 3 {
+        eprintln!("usage: uymerge merge [flags] <base> <theirs> <ours> [output]");
+        return ExitCode::from(USAGE_RC);
+    }
+    // Native order is base, left, right, dest; with no dest the merge is
+    // written in place over ours, matching git's %A %A.
+    let out = *positionals.get(3).unwrap_or(&positionals[2]);
+    let norm = [
+        args[0].clone(),
+        positionals[0].to_string(),
+        positionals[1].to_string(),
+        positionals[2].to_string(),
+        out.to_string(),
+    ];
+    driver(&norm)
 }
 
 // Outcome of the merge pipeline.

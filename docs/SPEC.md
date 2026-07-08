@@ -171,6 +171,18 @@ lines, the final output is converted to CRLF wholesale (reference:
 LIST OUTDIR` behave exactly like the reference harness: one output file
 per input, named by list index, `.error` suffix on decode failure.
 
+5.6 Drop-in CLI: `uymerge merge [flags] <base> <left> <right> [dest]`
+mirrors the native UnityYAMLMerge invocation, so an existing config that
+launches UnityYAMLMerge works unchanged when the binary path is swapped.
+`left` is theirs, `right` is ours, `dest` is the output and defaults to
+`right` in place. The native flags `-l -r -i -o -p -h --force --rules
+--fallback --typeInfo --nomappinginoneline --describe` are parsed and
+ignored; the value-taking flags `-i -o --rules --fallback --typeInfo` also
+consume their argument. uymerge never launches a fallback tool, so
+`--fallback` is a no-op and conflicts always surface as markers (5.2). `-l`
+and `-r` explicit side resolution is not honored yet: a conflict surfaces
+rather than auto-picking a side.
+
 ## 6. Non-goals
 
 No YAML data model. No schema knowledge beyond sections 1 and 3. No

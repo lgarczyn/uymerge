@@ -52,6 +52,21 @@ repository so every contributor uses it):
 
 That is all. Merges of scenes, prefabs, and assets now come out editor-clean.
 
+### Drop-in for `UnityYAMLMerge`
+
+`uymerge` also accepts the native tool's own invocation:
+
+```
+uymerge merge [flags] <base> <theirs> <ours> [output]
+```
+
+so an existing `UnityYAMLMerge` configuration works by pointing it at the
+`uymerge` binary instead. The native flags (`-h`, `-p`, `--force`, `--rules`,
+`--fallback`, and the rest) are accepted and ignored; `uymerge` never hands off
+to a fallback merge tool, so conflicts always surface as markers. This is what
+lets the setups the Unity manual documents for other version control systems
+reuse `uymerge` unchanged.
+
 ## Manual use
 
 ```
@@ -110,6 +125,29 @@ diff3 expectations come from git itself. Corpus-scale oracles (`oracle/noop.sh`,
 `oracle/bench.sh`) run against a local Unity checkout.
 
 The design and behavior are specified in `docs/SPEC.md`.
+
+## Roadmap
+
+The drop-in CLI above is the foundation for wider support. Planned:
+
+- **Other version control systems.** The Perforce, Plastic / Unity Version
+  Control, and SVN setups from the Unity manual should work by swapping the
+  binary path into their `UnityYAMLMerge` configs. Each still needs testing and
+  an exit-code compatibility pass before it is claimed as supported.
+- **Explicit side resolution.** Honor the native `-l` / `-r` flags to take
+  theirs or ours on conflict, for pipelines that auto-resolve. Today those flags
+  are accepted but a conflict still surfaces as markers.
+- **Rules-driven array merge.** The native `--rules` file keys arbitrary
+  component arrays by `fileID`. `uymerge` uses a fixed structural model
+  (documents, string-table entries, SerializeReference records) plus diff3, and
+  conflicts on the rest rather than mis-merging. Broader keyed-array merge from a
+  rules file is future work.
+- **`strip` command and the SVN calling convention.** The native `strip`
+  command and the argv shape SVN passes are not implemented yet.
+
+Out of scope by design: the interactive `--fallback` mechanism that shells out
+to a GUI merge tool. `uymerge` verifies its own output and surfaces a conflict
+rather than handing off.
 
 ## License
 
