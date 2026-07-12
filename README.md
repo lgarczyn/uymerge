@@ -189,6 +189,13 @@ The drop-in CLI above is the foundation for wider support. Planned:
   rules file is future work.
 - **`strip` command and the SVN calling convention.** The native `strip`
   command and the argv shape SVN passes are not implemented yet.
+- **`unity-to-yaml` and `yaml-to-unity`.** Convert a Unity asset to
+  standard YAML that any conforming parser reads correctly, and back.
+  Export repeats the `%YAML`/`%TAG` directives before each document,
+  rewrites the `stripped` suffix, and unwraps folded scalars, because
+  spec folding silently corrupts them (see `docs/HAZARDS.md`). Import
+  rewraps to editor form. Together they let standard tools like `yq`
+  edit Unity assets with editor-clean output.
 
 Out of scope by design: the interactive `--fallback` mechanism that shells out
 to a GUI merge tool. `uymerge` verifies its own output and surfaces a conflict
