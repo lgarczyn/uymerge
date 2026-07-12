@@ -7,6 +7,8 @@
 //! The `--batch-reserialize` and `--batch-unwrap` modes mirror
 //! oracle/py_batch.py so oracle/differential.sh can byte-compare us to it.
 //! The `merge` subcommand accepts the native UnityYAMLMerge argv, SPEC 5.6.
+//! The `format` subcommand rewraps files into editor form with no merge,
+//! SPEC 5.7.
 //!
 //! Exit 0 only on a conflict-free merge that also passes the self-check,
 //! SPEC 5.1-5.3.
@@ -16,6 +18,7 @@
 //! Release builds unwind, and the driver catches any panic as the same
 //! whole-file conflict.
 
+use std::io::{self, Read, Write};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::process::ExitCode;
@@ -39,6 +42,7 @@ pub fn run(args: &[String]) -> ExitCode {
         Some("--batch-reserialize") => batch(false, args),
         Some("--batch-unwrap") => batch(true, args),
         Some("merge") => merge_subcommand(args),
+        Some("format") => format_subcommand(args),
         _ => driver(args),
     }
 }
@@ -82,6 +86,175 @@ fn merge_subcommand(args: &[String]) -> ExitCode {
         out.to_string(),
     ];
     driver(&norm)
+}
+
+// The editor-faithful rewrap, the canonical form every mode ends on.
+// The merge pipeline finishes with it, so a formatted file is byte-identical
+// to what a conflict-free merge of that file against itself would write.
+fn rewrap(text: &str) -> String {
+    reserialize(text, PLAIN_WIDTH, QUOTED_WIDTH, true)
+}
+
+// Reformat mode, SPEC 5.7.
+// Rewraps a file into editor form in place, with no merge and no second side.
+//
+// Terminators are left exactly as found: reserialize carries each line's CR
+// through, so a CRLF or mixed file keeps its own endings. The driver's
+// wholesale CRLF restore is a merge policy, two sides folding into one
+// output, and here it would rewrite a mixed file's minority endings.
+fn format_subcommand(args: &[String]) -> ExitCode {
+    let mut check = false;
+    let mut paths: Vec<&str> = Vec::new();
+    let mut literal = false;
+    for a in &args[2..] {
+        let a = a.as_str();
+        if literal || a == "-" || !a.starts_with('-') {
+            paths.push(a);
+        } else if a == "--" {
+            literal = true;
+        } else if a == "--check" {
+            check = true;
+        } else {
+            eprintln!("uymerge: unknown flag {a}");
+            return format_usage();
+        }
+    }
+    if paths.is_empty() {
+        return format_usage();
+    }
+
+    let mut f = Format {
+        check,
+        ..Default::default()
+    };
+    for p in paths {
+        if p == "-" {
+            f.stdin();
+        } else {
+            f.walk(Path::new(p), true);
+        }
+    }
+
+    if f.failed {
+        return ExitCode::from(USAGE_RC);
+    }
+    // --check reports rather than writes, so the changed list is the verdict.
+    if check && !f.changed.is_empty() {
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
+}
+
+fn format_usage() -> ExitCode {
+    eprintln!("usage: uymerge format [--check] <file|dir|->...");
+    ExitCode::from(USAGE_RC)
+}
+
+// Accumulates a whole run so every bad path is reported, not just the first,
+// and the exit code is decided once at the end.
+#[derive(Default)]
+struct Format {
+    check: bool,
+    changed: Vec<String>,
+    failed: bool,
+}
+
+impl Format {
+    // A directory recurses; a file is formatted.
+    // `named` marks a path the user spelled out. Those are always formatted.
+    // Files found by recursing are formatted only if they look like Unity
+    // YAML, so pointing at Assets/ cannot rewrite a .cs or a binary asset.
+    fn walk(&mut self, path: &Path, named: bool) {
+        let meta = match std::fs::metadata(path) {
+            Ok(m) => m,
+            Err(e) => return self.fail(path, &e.to_string()),
+        };
+        if !meta.is_dir() {
+            return self.file(path, named);
+        }
+        let entries = match std::fs::read_dir(path) {
+            Ok(e) => e,
+            Err(e) => return self.fail(path, &e.to_string()),
+        };
+        // Sorted, so a run over a tree reports in a stable order.
+        let mut kids: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+        kids.sort();
+        for k in kids {
+            // file_type does not follow symlinks, so a link is neither dir nor
+            // file here and is skipped. A cyclic tree cannot hang the walk.
+            match std::fs::symlink_metadata(&k) {
+                Ok(m) if m.is_dir() => self.walk(&k, false),
+                Ok(m) if m.is_file() => self.file(&k, false),
+                _ => {}
+            }
+        }
+    }
+
+    fn file(&mut self, path: &Path, named: bool) {
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) => return self.fail(path, &e.to_string()),
+        };
+        let Ok(text) = std::str::from_utf8(&bytes) else {
+            // A named file that cannot be decoded is an error the user asked
+            // for. A binary asset found by recursing is simply not ours.
+            if named {
+                self.fail(path, "not valid UTF-8");
+            }
+            return;
+        };
+        if !named && !is_unity_yaml(text) {
+            return;
+        }
+        let out = rewrap(text);
+        if out.as_bytes() == bytes {
+            return;
+        }
+        self.changed.push(path.display().to_string());
+        if self.check {
+            println!("{}", path.display());
+            return;
+        }
+        // Written only when the bytes actually change, so an already-clean
+        // asset keeps its mtime and Unity does not reimport it.
+        if let Err(e) = std::fs::write(path, out) {
+            self.fail(path, &e.to_string());
+        }
+    }
+
+    // `-` is a filter: stdin to stdout, never in place.
+    // --check stays silent on stdout so the exit code is the whole answer.
+    fn stdin(&mut self) {
+        let mut buf = Vec::new();
+        if let Err(e) = io::stdin().read_to_end(&mut buf) {
+            return self.fail(Path::new("<stdin>"), &e.to_string());
+        }
+        let Ok(text) = std::str::from_utf8(&buf) else {
+            return self.fail(Path::new("<stdin>"), "not valid UTF-8");
+        };
+        let out = rewrap(text);
+        if out.as_bytes() != buf {
+            self.changed.push("<stdin>".to_string());
+        }
+        if self.check {
+            return;
+        }
+        if let Err(e) = io::stdout().write_all(out.as_bytes()) {
+            self.fail(Path::new("<stdin>"), &e.to_string());
+        }
+    }
+
+    fn fail(&mut self, path: &Path, msg: &str) {
+        eprintln!("uymerge: {}: {msg}", path.display());
+        self.failed = true;
+    }
+}
+
+// Unity writes every text asset with the YAML directive on line one.
+// A .meta, a .cs or a force-binary asset does not have it, so this is what
+// makes recursing over a project directory safe.
+fn is_unity_yaml(text: &str) -> bool {
+    text.starts_with("%YAML")
 }
 
 // Outcome of the merge pipeline.
@@ -166,7 +339,7 @@ fn run_merge(base: &str, ours: &str, theirs: &str) -> MergeOutcome {
     let ou = reserialize(ours, INF, INF, false);
     let tu = reserialize(theirs, INF, INF, false);
     let merged = merge::merge_file(&bu, &ou, &tu);
-    let text = reserialize(&merged.lines.join("\n"), PLAIN_WIDTH, QUOTED_WIDTH, true);
+    let text = rewrap(&merged.lines.join("\n"));
     if merged.conflict {
         return MergeOutcome::Conflict(text);
     }
@@ -212,7 +385,7 @@ fn batch(unwrap: bool, args: &[String]) -> ExitCode {
                 if unwrap {
                     reserialize(&text, INF, INF, false)
                 } else {
-                    reserialize(&text, PLAIN_WIDTH, QUOTED_WIDTH, true)
+                    rewrap(&text)
                 }
             });
         match ok {

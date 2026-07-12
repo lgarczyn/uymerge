@@ -183,6 +183,33 @@ consume their argument. uymerge never launches a fallback tool, so
 and `-r` explicit side resolution is not honored yet: a conflict surfaces
 rather than auto-picking a side.
 
+5.7 Reformat: `uymerge format [--check] <file|dir|->...` rewraps files into
+editor form with no merge and no second side. The rewrap is the same
+reserialize the merge pipeline ends on, so a formatted file is byte-identical
+to what a conflict-free merge of that file against itself would write.
+
+A file argument is formatted whatever it contains: the user named it. A
+directory argument recurses, and there only files whose first line begins
+`%YAML` are formatted, so pointing at a project directory cannot rewrite a
+`.cs`, a `.meta`, or a force-binary asset. `-` filters stdin to stdout.
+
+Terminators are preserved exactly as found, per line: reserialize carries
+each line's CR through, so a CRLF or mixed file keeps its own endings. The
+wholesale CRLF restore of 5.4 is a *merge* policy, two sides folding into one
+output, and must not be applied here.
+
+A file is written only when its bytes actually change, so an already-clean
+asset keeps its mtime and Unity does not reimport it. Idempotence therefore
+holds on editor-form input, per 2.7; it is not claimed on malformed input,
+where the rewrap is deliberately reference-faithful rather than idempotent.
+
+`--check` writes nothing, prints each file that would change to stdout, and
+exits 1 if any would. This is the CI and pre-commit mode.
+
+Exit codes: 0 all clean, 1 `--check` found a file that would change, 2 usage
+error or an unreadable/undecodable path. A bad path is reported and the run
+continues, so one failure does not hide the rest.
+
 ## 6. Non-goals
 
 No YAML data model. No schema knowledge beyond sections 1 and 3. No
