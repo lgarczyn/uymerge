@@ -16,6 +16,10 @@ prefabs churn and can silently lose data. `uymerge` merges the same files
 record, then reserializes byte-for-byte the way the editor would and self-checks
 the result before ever reporting success.
 
+That reserialization is also available on its own, as
+[`uymerge format`](#reformat): a formatter that rewrites an asset exactly the
+way the editor would, without opening Unity, with a `--check` mode for CI.
+
 ## Install
 
 Download the binary for your platform from the
@@ -75,6 +79,47 @@ uymerge BASE REMOTE LOCAL OUTPUT
 
 Exit `0` is a verified, conflict-free merge; a non-zero exit leaves a
 marked-up `OUTPUT` with conflict markers, handled like any merge driver.
+
+## Reformat
+
+The rewrap step is available on its own, with no merge and no second side:
+
+```
+uymerge format Assets/Scenes/Main.unity     # rewrite one file in place
+uymerge format Assets                       # recurse a directory
+uymerge format --check Assets               # report, write nothing
+uymerge format - < in.unity > out.unity     # filter stdin to stdout
+```
+
+This rewrites a file exactly the way the Unity editor would write it: plain
+scalars folded at width 79, quoted at 80, inline flow mappings cleaned up. It
+is the same reserialization the merge pipeline ends on, so formatting a file
+and merging it are consistent by construction.
+
+It is useful for taking the churn out of a diff before you commit — an asset
+touched by an external tool, or hand-edited, comes back to editor form without
+opening Unity — and for keeping a repository canonical so future merges start
+from clean ground.
+
+A file you name is formatted whatever it contains. A directory is recursed,
+and only files that begin with `%YAML` are touched, so pointing `format` at a
+project directory will not rewrite your `.cs`, your `.meta`, or a force-binary
+asset. Line endings are preserved per line, CRLF and mixed files included, and
+a file whose bytes do not change is not rewritten at all — so an already-clean
+asset keeps its mtime and Unity does not reimport it.
+
+`--check` writes nothing, lists the files that would change, and exits `1` if
+there are any. That makes it a drop-in CI gate or pre-commit hook:
+
+```
+uymerge format --check Assets || {
+    echo "Unity assets are not in editor form; run: uymerge format Assets"
+    exit 1
+}
+```
+
+Exit `0` all clean, `1` under `--check` when a file would change, `2` on a
+usage error or an unreadable path.
 
 ## How it works
 
