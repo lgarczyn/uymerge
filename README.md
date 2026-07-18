@@ -39,7 +39,7 @@ Register `uymerge` as a git merge driver (add `--global` to apply everywhere):
 
 ```
 git config merge.unityyamlmerge.name   "Unity YAML structural merge"
-git config merge.unityyamlmerge.driver "'/path/to/uymerge' %O %B %A %A"
+git config merge.unityyamlmerge.driver "'/path/to/uymerge' merge %O %B %A %A"
 ```
 
 Route Unity files to it with `.gitattributes` (commit this so every contributor
@@ -51,27 +51,20 @@ uses it):
 *.asset   merge=unityyamlmerge
 ```
 
-### Drop-in for `UnityYAMLMerge`
-
-`uymerge` also accepts the native tool's invocation, so an existing
-`UnityYAMLMerge` config works by pointing it at the `uymerge` binary:
-
-```
-uymerge merge [flags] <base> <theirs> <ours> [output]
-```
-
-The native flags (`-h`, `-p`, `--force`, `--rules`, `--fallback`, ...) are
-accepted and ignored. `uymerge` never hands off to a fallback tool, so
-conflicts always surface as markers.
+This is the same command shape the native `UnityYAMLMerge` uses, so an existing
+`UnityYAMLMerge` config drops in by pointing it at the `uymerge` binary. The
+native flags (`-h`, `-p`, `--force`, `--rules`, `--fallback`, ...) are accepted
+and ignored; `uymerge` never hands off to a fallback tool, so conflicts always
+surface as markers.
 
 ## Manual use
 
 ```
-uymerge BASE REMOTE LOCAL OUTPUT
+uymerge merge <base> <theirs> <ours> [output]
 ```
 
-Exit `0` is a verified, conflict-free merge; non-zero leaves `OUTPUT` with
-conflict markers.
+With no `output` the merge is written in place over `<ours>`. Exit `0` is a
+verified, conflict-free merge; non-zero leaves the output with conflict markers.
 
 ## Reformat
 
