@@ -760,6 +760,16 @@ pub fn merge_file(base: &str, ours: &str, theirs: &str) -> FileMerge {
             out.extend(lines.iter().cloned());
         }
     }
+
+    let tail = |l: &[&str], text: &str| -> Vec<String> {
+        l[model::body_lines(text).len()..]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    };
+    let (end, econf) = diff3_lines(&tail(&bl, base), &tail(&ol, ours), &tail(&tl, theirs));
+    out.extend(end);
+    conflict |= econf;
     FileMerge {
         lines: out,
         conflict,
@@ -1627,5 +1637,53 @@ mod tests {
         let text = rendered(&m);
         assert_eq!(text.matches("&100").count(), 1);
         assert!(text.contains("m_Name: A"));
+    }
+
+    fn no_blank_line(text: &str) {
+        assert!(!text.contains("\n\n"), "blank line in merge:\n{text}");
+        assert!(text.ends_with('\n'));
+    }
+
+    #[test]
+    fn both_append_refids_at_eof_leaves_no_blank_line() {
+        let r = |rid: &str| refrec(rid, "type: {class: Foo, ns: N, asm: A}", &[]);
+        let base = refs(&[r("1")]);
+        let ours = refs(&[r("1"), r("2")]);
+        let theirs = refs(&[r("1"), r("3")]);
+        let m = merge_file(&base, &ours, &theirs);
+        assert!(!m.conflict);
+        let text = rendered(&m);
+        no_blank_line(&text);
+        assert!(text.contains("- rid: 2") && text.contains("- rid: 3"));
+    }
+
+    #[test]
+    fn both_append_table_at_eof_leaves_no_blank_line() {
+        let t = |es: &[String]| {
+            format!(
+                "--- !u!114 &1\nMonoBehaviour:\n  m_TableData:\n{}\n",
+                es.join("\n")
+            )
+        };
+        let base = t(&[entry("1", "a")]);
+        let ours = t(&[entry("1", "a"), entry("2", "b")]);
+        let theirs = t(&[entry("1", "a"), entry("3", "c")]);
+        let m = merge_file(&base, &ours, &theirs);
+        assert!(!m.conflict);
+        let text = rendered(&m);
+        no_blank_line(&text);
+        assert!(text.contains("m_Id: 2") && text.contains("m_Id: 3"));
+    }
+
+    #[test]
+    fn both_append_document_at_eof_leaves_no_blank_line() {
+        let base = "%YAML 1.1\n--- !u!1 &1\nGameObject:\n  m_Name: A\n";
+        let ours = format!("{base}--- !u!1 &2\nGameObject:\n  m_Name: B\n");
+        let theirs = format!("{base}--- !u!1 &3\nGameObject:\n  m_Name: C\n");
+        let m = merge_file(base, &ours, &theirs);
+        assert!(!m.conflict);
+        let text = rendered(&m);
+        no_blank_line(&text);
+        assert!(text.contains("&2") && text.contains("&3"));
     }
 }

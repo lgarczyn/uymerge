@@ -865,4 +865,21 @@ mod tests {
         let merged = side.replace(&rec, &format!("{rec}{rec}"));
         assert!(caught(viols(&both_add_base, &side, &side, &merged)));
     }
+
+    #[test]
+    fn blank_line_inside_refids_is_caught() {
+        let rec = |rid: &str| {
+            format!("    - rid: {rid}\n      type: {{class: Foo, ns: N, asm: A}}\n      data: \n")
+        };
+        let base = format!(
+            "{HDR}  references:\n    version: 2\n    RefIds:\n{}",
+            rec("1")
+        );
+        let ours = format!("{base}{}", rec("2"));
+        let theirs = format!("{base}{}", rec("3"));
+        let good = format!("{base}{}{}", rec("3"), rec("2"));
+        let bad = format!("{base}{}\n{}", rec("3"), rec("2"));
+        assert_eq!(viols(&base, &ours, &theirs, &good), Vec::<String>::new());
+        assert!(!viols(&base, &ours, &theirs, &bad).is_empty());
+    }
 }

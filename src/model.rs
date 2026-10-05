@@ -221,11 +221,20 @@ pub(crate) fn is_section_key(line: &str) -> bool {
 
 // --- parsers -------------------------------------------------------------
 
+// Exclude the file terminator from the last record or document span
+pub(crate) fn body_lines(text: &str) -> Vec<&str> {
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if lines.last() == Some(&"") {
+        lines.pop();
+    }
+    lines
+}
+
 /// Split whole documents by `&anchor` per [`Documents`].
 /// Ported from the reference `DOC_ANCHOR` regex, plus spans and duplicate
 /// tracking.
 pub fn documents(text: &str) -> Documents {
-    let lines: Vec<&str> = text.split('\n').collect();
+    let lines = body_lines(text);
     let marks: Vec<(usize, &str)> = lines
         .iter()
         .enumerate()
@@ -284,7 +293,7 @@ struct EntBuilder {
 /// Mirrors the reference `table_entries`: duplicate ids accumulate into the
 /// first record, and content rules are the caller's concern.
 pub fn table_entries(text: &str) -> TableData {
-    let lines: Vec<&str> = text.split('\n').collect();
+    let lines = body_lines(text);
     let mut builders: BTreeMap<String, EntBuilder> = BTreeMap::new();
     let mut order: Vec<String> = Vec::new();
     let mut dups: BTreeSet<String> = BTreeSet::new();
@@ -406,7 +415,7 @@ struct RefBuilder {
 /// everything else the payload, and duplicate rids accumulate into the first
 /// record.
 pub fn refid_records(text: &str) -> RefData {
-    let lines: Vec<&str> = text.split('\n').collect();
+    let lines = body_lines(text);
     let mut builders: BTreeMap<String, RefBuilder> = BTreeMap::new();
     let mut order: Vec<String> = Vec::new();
     let mut dups: BTreeSet<String> = BTreeSet::new();
@@ -515,8 +524,8 @@ mod tests {
         assert_eq!(d.docs["100"], Span { start: 2, end: 5 });
         assert_eq!(d.docs["200"], Span { start: 5, end: 9 });
         assert_eq!(d.docs["-300"], Span { start: 9, end: 12 });
-        // last document runs to EOF, past the trailing blank line
-        assert_eq!(d.docs["400"], Span { start: 12, end: 16 });
+        // last document stops before the file terminator
+        assert_eq!(d.docs["400"], Span { start: 12, end: 15 });
     }
 
     #[test]
@@ -543,7 +552,7 @@ mod tests {
     fn documents_no_marker_is_all_preamble() {
         let d = documents("%YAML 1.1\n%TAG !u!\n");
         assert!(d.order.is_empty());
-        assert_eq!(d.preamble, Some(Span { start: 0, end: 3 }));
+        assert_eq!(d.preamble, Some(Span { start: 0, end: 2 }));
     }
 
     #[test]
@@ -637,11 +646,11 @@ mod tests {
         // bare or [] form is derived from the id set, not payload
         assert_eq!(
             r.payload,
-            "      type: {class: SmartFormatTag, ns: UnityEngine.Localization.Metadata, asm: Unity.Localization}\n      data:\n"
+            "      type: {class: SmartFormatTag, ns: UnityEngine.Localization.Metadata, asm: Unity.Localization}\n      data:"
         );
         assert_eq!(r.ids, set(&["200", "300"]));
-        // record runs from its rid line to EOF, over the trailing blank line
-        assert_eq!(r.spans, vec![Span { start: 22, end: 30 }]);
+        // record stops before the file terminator
+        assert_eq!(r.spans, vec![Span { start: 22, end: 29 }]);
     }
 
     #[test]

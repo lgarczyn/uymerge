@@ -563,3 +563,37 @@ fn bare_single_file_is_still_a_usage_error() {
         "bare argv wrote a file"
     );
 }
+
+fn eof_append_sides(nl: &str) -> (String, String, String) {
+    let rec = |rid: &str| {
+        format!("    - rid: {rid}{nl}      type: {{class: Foo, ns: N, asm: A}}{nl}      data: {nl}")
+    };
+    let base = format!(
+        "%YAML 1.1{nl}%TAG !u! tag:unity3d.com,2011:{nl}--- !u!114 &11400000{nl}\
+         MonoBehaviour:{nl}  m_Name: X{nl}  references:{nl}    version: 2{nl}    RefIds:{nl}{}",
+        rec("1")
+    );
+    let ours = format!("{base}{}", rec("2"));
+    let theirs = format!("{base}{}", rec("3"));
+    (base, ours, theirs)
+}
+
+#[test]
+fn both_append_at_eof_leaves_no_blank_line() {
+    for (name, nl) in [("eof-lf", "\n"), ("eof-crlf", "\r\n")] {
+        let dir = workdir(name);
+        let (base, ours, theirs) = eof_append_sides(nl);
+        let (rc, out) = drive(&dir, base.as_bytes(), theirs.as_bytes(), ours.as_bytes());
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(rc, 0, "{name}");
+        assert!(
+            !text.contains(&format!("{nl}{nl}")),
+            "{name} blank line:\n{text}"
+        );
+        assert!(
+            text.contains("- rid: 2") && text.contains("- rid: 3"),
+            "{name}"
+        );
+        assert!(text.ends_with(&format!("data: {nl}")), "{name}");
+    }
+}
